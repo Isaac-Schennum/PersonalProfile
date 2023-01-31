@@ -1,0 +1,224 @@
+---
+title: 'DS202 Final Project'
+author: "Isaac Schennum (no team members)"
+data source (data.world): "https://data.world/us-nasa-gov/0bd044c6-a334-4c3e-9bed-9fa0429b3e41"
+data source (official): "https://catalog.data.gov/dataset/global-landslide-catalog"
+date: "5/11/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Research question:
+
+What factors play into the frequency of landslides and the danger posed to humans by landslides?
+
+```{r}
+library(tidyverse)
+glc <- read.csv("GlobalLandslideCatalog.csv", stringsAsFactors = FALSE)
+```
+
+```{r}
+summary(glc)
+```
+
+```{r}
+dim(glc)
+```
+
+# Overview of the data set:
+
+This is a data set of landslides tracked in the Global Landslide Catalog (GLC). The GLC tracks all landslides reported in the media, disaster databases, scientific reports, or any other sources since 2007. The GLC is compiled by NASA at the NASA Goddard Space Flight Center.
+
+In this data set, each row describes 1 landslide, with columns giving details about the landslide. Variables include where the landslide took place ("latitude", "longitude", "country", etc.), when the landslide happened ("date_"), the severity of the landslide ("fatalities", "injuries", "landslide1", etc.), and more. In total, there are 6788 landslides in this data set, each with 35 variables.
+
+```{r}
+str(glc)
+```
+
+```{r}
+sum(is.na(glc))
+```
+
+```{r}
+sapply(glc, function(glc) sum(is.na(glc)))
+```
+
+```{r}
+unique(glc[c("continentc")])
+unique(glc[c("key_")])
+unique(glc[c("time_")])
+unique(glc[c("landslide1")])
+```
+
+# Cleaning steps:
+
+For the first part of cleaning, I checked to see if any variables were represented by an incorrect type. It appears as if the columns "the_geom", "date_", "and "time_" are all incorrectly represented as strings. The "the_geom" column, which tracks the coordinates of the landslides (e.g. POINT (-73.40200000000006 41.55850000000008)) can be ignored, since all of that same data is in the columns "latitude" and "longitude" which are both already correctly formatted as numbers. The column "time_" seems to be broken or unused, since every entry is either "12/30/1899 08:00:00 AM +0000", "01/12/1900 08:00:00 AM +0000" or an empty string. As such, this column can also be ignored. The "date_" column, which tracks the date of each landslide, is therefore the only column which needs to be transformed (note that a time is also listed in each row of "date_", but every time is either 08:00:00 AM or 07:00:00 AM, indicating that the times listed are inaccurate and unusable). I will do this by creating a new variable "date" of the type date and using the as.Date() function.
+
+Additionally, the "landslide1" column which tracks the size of each landslide may be best represented by a factor instead of a string. It also contains inconsistent capitalization which I will fix by making all strings in this column all lowercase.
+
+It appears at first glance as if there are 8961 N/A values in this data set. 6788 of these values come from the "countrycod" column. Upon looking at the data table, this column appears to be completely empty and unused, which makes sense considering that the data set consists of 6788 rows and there are 6788 missing values in this column. I will handle these N/A values by simply dropping this unused variable. There also appears to be 2171 N/A values in the "continentc" column and 2 N/A values in the "key_" column. However, upon closer inspection, these values are actually abbreviations for the continent of North America in the "contintentc" column and the country of Namibia in the "key_" column. Since these values can be problematic, I will change every instance of "NA" in both columns to "NM" (North aMerica/NaMibia). "NM" is used nowhere else in either of these columns, so this change should not introduce any issues.
+
+# Data cleaning:
+
+Remove the "countrycod" column:
+
+```{r}
+glc <- subset(glc, select = -c(countrycod))
+```
+
+Replace remaining "NA" values with "NM" for easier data analysis:
+
+```{r}
+glc[is.na(glc)] <- "NM"
+sum(is.na(glc))
+```
+
+Convert all "landslide1" strings to lowercase:
+
+```{r}
+glc$landslide1 = tolower(glc$landslide1)
+```
+
+Convert all "very_large" in "landslide1" to "very large" for better viewing in plots:
+
+```{r}
+glc[glc$landslide1 == "very_large",]$landslide1 <- "very large"
+```
+
+Convert all blank string values in "landslide1" to "unknown" for consistency:
+
+```{r}
+glc[glc$landslide1 == "",]$landslide1 <- "unknown"
+```
+
+Convert "landslide1" to a factor:
+
+```{r}
+glc$landslide1 <- as.factor(glc$landslide1)
+```
+
+Reorder "landslide1" factors in a more sensible order:
+
+```{r}
+glc$landslide1 <- factor(glc$landslide1, levels = c("extra large", "very large", "large", "medium", "small", "unknown"))
+```
+
+Rename "landslide1" to "size":
+
+```{r}
+names(glc)[names(glc) == "landslide1"] <- "size"
+```
+
+Trim all values in the column "date_" to include only the date (not the time):
+
+```{r}
+glc$date_ <- strtrim(glc$date_, 10)
+```
+
+Create new variable "date" of type date and fill it in using the data from the "date_" column:
+
+```{r}
+glc$date <- as.Date(glc$date_, format = "%m/%d/%Y")
+```
+
+# Data plots and analyses:
+
+```{r}
+library(sf)
+library(mapview)
+```
+
+World map view of landslides, color coordinated based on landslide size:
+
+```{r}
+mapview(glc, xcol = "longitude", ycol = "latitude", zcol = "size", crs = 4269, grid = FALSE, legend = TRUE)
+```
+
+~
+From the above map, we can see that small size landslides tend to be reported frequently in highly populated and developed areas such as the United States, the United Kingdom, eastern Australia, and New Zealand. Larger size landslides tend to be reported frequently in mountain ranges such as the Andes and the Himalayas, as well as in wet, equatorial regions such as Southeast Asia and Central America. The data on large landslides is likely fairly accurate to reality, but the overrepresentation of small landslides in more populous and developed regions likely indicates that small landslides happen all around the world, but are not reported on unless there are people around who can report them. This lack of landslide reporting in certain regions is particularly noticeable in the sparsely populated country of Russia and in the underdeveloped region of Sub-Saharan Africa. For clarity, this data set is maintained through NASA, a US agency.
+~
+
+World map view of landslides, with the size of each point indicating the number of fatalities:
+
+```{r}
+mapview(glc, xcol = "longitude", ycol = "latitude", zcol = "fatalities", cex = "fatalities", crs = 4269, grid = FALSE, legend = TRUE)
+```
+
+World map view of landslides, with the size of each point indicating the number of injuries:
+
+```{r}
+mapview(glc, xcol = "longitude", ycol = "latitude", zcol = "injuries", cex = "injuries", crs = 4269, grid = FALSE, legend = TRUE)
+```
+
+~
+The 2 above maps show that most landslides have little to no fatalities or injuries associated with them. Landslides that kill or injure a large number of people are outliers. As expected, these outlier landslides tend to happen near mountain ranges and/or equatorial regions which were previously concluded to have larger landslides, as seen in the landslide in the Andes with a high injury count as well as the landslides near the Himalayas with very high death counts.
+~
+
+Boxplot of fatalities for each landslide type:
+
+```{r}
+ggplot(data = glc, mapping = aes(x = size, y = fatalities)) + geom_boxplot()
+```
+
+Boxplot of injuries for each landslide type:
+
+```{r}
+ggplot(data = glc, mapping = aes(x = size, y = injuries)) + geom_boxplot()
+```
+
+~
+These 2 boxplots show once again show that landslides that endanger human safety are outliers. Interestingly, while fatality counts tend to increase as landslides get larger, injury counts rise until around the medium/large point and then fall back down. This trend suggests that as landslides get larger they become more dangerous, but after a point they become much less likely to leave people alive and injured, instead just killing them.
+~
+
+Histogram of fatalities for all landslides:
+
+```{r}
+ggplot(data = glc, aes(x = fatalities)) + geom_histogram(fill = "red", bins = 500)
+```
+
+Histogram of injuries for all landslides:
+
+```{r}
+ggplot(data = glc, aes(x = injuries)) + geom_histogram(fill = "orange", bins = 200)
+```
+
+~
+The above 2 histograms show that while high casualty landslides are incredibly rare and almost all landslides result in 0 deaths and 0 injuries, there is a non-negligible amount of landslides with low but non-zero casualty counts.
+~
+
+Bar chart of the number of landslides on each continent:
+
+```{r}
+ggplot(glc, aes(continentc, fill = continentc)) + geom_bar()
+```
+
+~
+The above bar chart shows that landslides are reported most often in Asia and North America. In accordance with what was discussed earlier, the abundance of North American landslides is likely a result of the overreporting of smaller landslides in the United States. Likewise, the abundance of Asian landslides is likely a result of the continent containing the Himilayan mountain range and the Southeast Asian region, since both mountain ranges and hot, wet regions seem prone to landslides.
+~
+
+Stacked bar chart of the number of landslides on each continent with how each landslide was triggered:
+
+```{r}
+ggplot(glc, aes(continentc, fill = trigger)) + geom_bar()
+```
+
+~
+The above stacked bar chart shows that the causes of landslides follow similar frequency distributions regardless of the continent.
+~
+
+Facet wrapped scatterplots of the number of injuries in each landslide versus the number of fatalities in each landslide, separated by continent:
+
+```{r}
+ggplot(glc, aes(x = fatalities, y = injuries)) + geom_point() + facet_wrap(vars(continentc))
+```
+
+~
+The above 6 scatterplots show that landslides with both a high injury count and a high death count are practically nonexistent. Instead, dangerous landslides will have either a high death count or a high injury count, but not both. These plots also clearly show that Asia clearly has the most dangerous landslides, with South America following behind Asia.
+~
+
+# Conclusion:
+
+The frequency of landslides and the danger posed to humans by landslides seem to both be influenced heavily by the geographical region. That is, mountainous regions and wet equatorial regions are prone to receiving more landslides and more deadly landslides. This seems to stay true regardless of more specific geographical elements (i.e. the Andes and Himalayas are both dangerous regions for landslides despite being on opposite sides of the globe).
